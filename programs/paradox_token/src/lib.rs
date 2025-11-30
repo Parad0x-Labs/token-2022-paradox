@@ -49,6 +49,10 @@ pub const MIN_TRANSFER_FEE_BPS: u16 = 100;
 /// Maximum transfer fee: 3% (300 bps)  
 pub const MAX_TRANSFER_FEE_BPS: u16 = 300;
 
+/// Minimum transfer amount to prevent dust attack (fee must be >= 1 raw unit)
+/// At 300 bps (3%), amounts below 34 result in 0 fee
+pub const MIN_TRANSFER_AMOUNT: u64 = 34;
+
 /// Default LP share: 70%
 pub const DEFAULT_LP_SHARE_BPS: u16 = 7000;
 
@@ -424,6 +428,27 @@ pub enum ParadoxError {
 
     #[msg("Already finalized")]
     AlreadyFinalized,
+
+    #[msg("Amount is below minimum transfer threshold")]
+    AmountBelowMinimum,
+
+    #[msg("Fee change timelock not expired")]
+    FeeChangeTimelockNotExpired,
+
+    #[msg("No pending fee change")]
+    NoPendingFeeChange,
+
+    #[msg("Fee change not yet announced")]
+    FeeChangeNotAnnounced,
+
+    #[msg("Snapshot data required (reserves cannot all be zero)")]
+    SnapshotDataRequired,
+
+    #[msg("No fees to harvest")]
+    NoFeesToHarvest,
+
+    #[msg("Pool not initialized")]
+    PoolNotInitialized,
 }
 
 // =============================================================================
@@ -592,5 +617,13 @@ pub struct LpEmergencyWithdrawal {
     pub lp_amount: u64,
     pub reason: String,
     pub timestamp: i64,
+}
+
+#[event]
+pub struct FeesHarvested {
+    pub mint: Pubkey,
+    pub amount: u64,
+    pub harvested_by: Pubkey,
+    pub destination: Pubkey,
 }
 

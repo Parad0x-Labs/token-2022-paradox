@@ -13,6 +13,7 @@ pub mod vesting;
 pub mod treasury;
 pub mod armageddon;
 pub mod fees;
+pub mod harvest_fees;
 
 pub use init_token_config::*;
 pub use update_token_config::*;
@@ -22,4 +23,5 @@ pub use vesting::*;
 pub use treasury::*;
 pub use armageddon::*;
 pub use fees::*;
+pub use harvest_fees::*;
 
