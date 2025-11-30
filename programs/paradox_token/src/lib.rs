@@ -25,9 +25,13 @@ declare_id!("PARADOX111111111111111111111111111111111111");
 
 pub const TOKEN_CONFIG_SEED: &[u8] = b"token_config";
 pub const LP_GROWTH_SEED: &[u8] = b"lp_growth";
+pub const LP_LOCK_SEED: &[u8] = b"lp_lock";
 pub const DEV_VESTING_SEED: &[u8] = b"dev_vesting";
 pub const DAO_TREASURY_SEED: &[u8] = b"dao_treasury";
 pub const FEE_VAULT_SEED: &[u8] = b"fee_vault";
+
+/// Emergency window for LP lock: 15 minutes
+pub const LP_EMERGENCY_WINDOW_SECONDS: i64 = 15 * 60;
 
 // =============================================================================
 // CONSTANTS
@@ -238,6 +242,64 @@ pub mod paradox_token {
     pub fn distribute_fees(ctx: Context<DistributeFees>) -> Result<()> {
         instructions::fees::distribute_handler(ctx)
     }
+
+    // =========================================================================
+    // LP LOCK (Timelock-based withdrawals)
+    // =========================================================================
+
+    /// Create pool and lock LP atomically
+    /// This is the ONLY way to create a pool - ensures LP is always locked
+    /// All withdrawals require 24-48h advance announcement (visible on-chain)
+    pub fn create_pool_and_lock(
+        ctx: Context<CreatePoolAndLock>,
+        sol_amount: u64,
+        token_amount: u64,
+        timelock_seconds: Option<i64>,
+        max_withdrawal_bps: Option<u16>,
+    ) -> Result<()> {
+        instructions::lp_lock::create_pool_and_lock_handler(
+            ctx, sol_amount, token_amount, timelock_seconds, max_withdrawal_bps
+        )
+    }
+
+    /// Announce LP withdrawal (starts timelock)
+    /// VISIBLE ON-CHAIN - everyone can see pending withdrawals
+    /// Minimum 24h notice required
+    pub fn announce_lp_withdrawal(
+        ctx: Context<AnnounceWithdrawal>,
+        amount: u64,
+        recipient: Pubkey,
+        reason: [u8; 64],
+    ) -> Result<()> {
+        instructions::lp_lock::announce_withdrawal_handler(ctx, amount, recipient, reason)
+    }
+
+    /// Execute LP withdrawal (after timelock passes)
+    /// Anyone can call once timelock expires
+    pub fn execute_lp_withdrawal(
+        ctx: Context<ExecuteWithdrawal>,
+        slot: u8,
+    ) -> Result<()> {
+        instructions::lp_lock::execute_withdrawal_handler(ctx, slot)
+    }
+
+    /// Cancel pending LP withdrawal
+    pub fn cancel_lp_withdrawal(
+        ctx: Context<CancelWithdrawal>,
+        slot: u8,
+    ) -> Result<()> {
+        instructions::lp_lock::cancel_withdrawal_handler(ctx, slot)
+    }
+
+    /// Transfer LP lock admin (to DAO)
+    pub fn transfer_lp_lock_admin(ctx: Context<TransferAdmin>) -> Result<()> {
+        instructions::lp_lock::transfer_admin_handler(ctx)
+    }
+
+    /// Get LP lock status
+    pub fn get_lp_lock_status(ctx: Context<GetLockStatus>) -> Result<()> {
+        instructions::lp_lock::get_lock_status_handler(ctx)
+    }
 }
 
 // =============================================================================
@@ -290,6 +352,42 @@ pub enum ParadoxError {
 
     #[msg("Math overflow")]
     MathOverflow,
+
+    #[msg("Timelock too short (minimum 24 hours)")]
+    TimelockTooShort,
+
+    #[msg("Timelock not expired yet")]
+    TimelockNotExpired,
+
+    #[msg("Withdrawal amount exceeds maximum allowed")]
+    WithdrawalAmountExceeded,
+
+    #[msg("Insufficient LP tokens locked")]
+    InsufficientLpTokens,
+
+    #[msg("Too many pending withdrawals (max 3)")]
+    TooManyPendingWithdrawals,
+
+    #[msg("Invalid withdrawal slot")]
+    InvalidWithdrawalSlot,
+
+    #[msg("No active withdrawal in this slot")]
+    NoActiveWithdrawal,
+
+    #[msg("Invalid vault account")]
+    InvalidVault,
+
+    #[msg("Emergency window still open")]
+    EmergencyWindowStillOpen,
+
+    #[msg("Emergency withdrawal already used")]
+    EmergencyAlreadyUsed,
+
+    #[msg("Emergency window closed")]
+    EmergencyWindowClosed,
+
+    #[msg("Already finalized")]
+    AlreadyFinalized,
 }
 
 // =============================================================================
@@ -398,5 +496,65 @@ pub struct FeesDistributed {
     pub to_lp: u64,
     pub burned: u64,
     pub to_treasury: u64,
+}
+
+// LP Lock Events
+
+#[event]
+pub struct LpLockCreated {
+    pub mint: Pubkey,
+    pub lp_pool: Pubkey,
+    pub lp_tokens_locked: u64,
+    pub timelock_seconds: i64,
+    pub max_withdrawal_bps: u16,
+    pub admin: Pubkey,
+}
+
+#[event]
+pub struct LpWithdrawalAnnounced {
+    pub mint: Pubkey,
+    pub amount: u64,
+    pub recipient: Pubkey,
+    pub reason: String,
+    pub announced_at: i64,
+    pub execute_after: i64,
+    pub slot: u8,
+}
+
+#[event]
+pub struct LpWithdrawalExecuted {
+    pub mint: Pubkey,
+    pub amount: u64,
+    pub recipient: Pubkey,
+    pub executed_by: Pubkey,
+    pub time_waited: i64,
+    pub remaining_locked: u64,
+}
+
+#[event]
+pub struct LpWithdrawalCancelled {
+    pub mint: Pubkey,
+    pub amount: u64,
+    pub recipient: Pubkey,
+    pub cancelled_by: Pubkey,
+    pub slot: u8,
+}
+
+#[event]
+pub struct LpLockFinalized {
+    pub mint: Pubkey,
+    pub lp_pool: Pubkey,
+    pub lp_tokens_locked: u64,
+    pub finalized_at: i64,
+    pub finalized_by: Pubkey,
+}
+
+#[event]
+pub struct LpEmergencyWithdrawal {
+    pub mint: Pubkey,
+    pub creator: Pubkey,
+    pub lp_amount: u64,
+    pub reason: String,
+    pub timestamp: i64,
 }
 
