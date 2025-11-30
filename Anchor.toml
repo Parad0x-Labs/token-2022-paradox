@@ -6,10 +6,10 @@ seeds = false
 skip-lint = false
 
 [programs.localnet]
-paradox_token = "9FFog8oDVKbwUpdqa7Z8uWfRDQ2QGzv6z24SBgGKTVFo"
+paradox_token = "7j4qvD77zadbvrKYmahMQbFS5f8tEseW9kj62LYuWmer"
 
 [programs.devnet]
-paradox_token = "9FFog8oDVKbwUpdqa7Z8uWfRDQ2QGzv6z24SBgGKTVFo"
+paradox_token = "7j4qvD77zadbvrKYmahMQbFS5f8tEseW9kj62LYuWmer"
 
 [registry]
 url = "https://api.apr.dev"
