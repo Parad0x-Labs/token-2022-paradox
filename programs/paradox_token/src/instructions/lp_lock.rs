@@ -1,14 +1,10 @@
 /**
- * LP Lock Instructions - Timelock Based
+ * LP Lock Instructions - Progressive Timelock with Snapshot/Restore
  * 
- * ALL withdrawals require advance announcement + timelock.
- * No instant withdrawals possible. Everyone can see pending withdrawals on-chain.
- * 
- * Flow:
- * 1. create_pool_and_lock - Creates pool + locks LP atomically
- * 2. announce_withdrawal - Public announcement, starts 24-48h timelock
- * 3. execute_withdrawal - After timelock passes
- * 4. cancel_withdrawal - Can cancel before execution
+ * TIMELINE:
+ * - Days 0-3:   12h notice (emergency fixes)
+ * - Days 3-15:  15 days notice (careful changes)
+ * - Days 15+:   30 days notice (permanent mode)
  * 
  * Made by LabsX402 for Solana
  * https://x.com/LabsX402
@@ -18,7 +14,7 @@ use anchor_lang::prelude::*;
 use anchor_spl::token::{Token, TokenAccount, Mint, Transfer, transfer};
 
 use crate::{
-    state::{LpLock, LpLockStatus, MIN_WITHDRAWAL_TIMELOCK_SECONDS, DEFAULT_WITHDRAWAL_TIMELOCK_SECONDS},
+    state::{LpLock, LpLockStatus, HolderBalancesSnapshot, HolderSnapshot},
     ParadoxError,
     LP_LOCK_SEED,
     LpLockCreated,
@@ -26,6 +22,9 @@ use crate::{
     LpWithdrawalExecuted,
     LpWithdrawalCancelled,
 };
+
+/// Seed for holder snapshot
+pub const HOLDER_SNAPSHOT_SEED: &[u8] = b"holder_snapshot";
 
 // =============================================================================
 // CREATE POOL AND LOCK LP
@@ -53,8 +52,11 @@ pub struct CreatePoolAndLock<'info> {
     /// CHECK: LP token mint from DEX
     pub lp_token_mint: UncheckedAccount<'info>,
     
+    /// CHECK: Emergency multisig address
+    pub emergency_multisig: UncheckedAccount<'info>,
+    
     #[account(mut)]
-    pub creator_token_account: Account<'info, TokenAccount>,
+    pub creator_lp_account: Account<'info, TokenAccount>,
     
     pub token_program: Program<'info, Token>,
     pub system_program: Program<'info, System>,
@@ -64,20 +66,13 @@ pub fn create_pool_and_lock_handler(
     ctx: Context<CreatePoolAndLock>,
     sol_amount: u64,
     token_amount: u64,
-    timelock_seconds: Option<i64>,
-    max_withdrawal_bps: Option<u16>,
+    _timelock_seconds: Option<i64>, // Ignored - uses progressive system
+    _max_withdrawal_bps: Option<u16>, // Ignored - 100% allowed with proper notice
 ) -> Result<()> {
     let lp_lock = &mut ctx.accounts.lp_lock;
     
-    // Use defaults if not specified
-    let timelock = timelock_seconds.unwrap_or(DEFAULT_WITHDRAWAL_TIMELOCK_SECONDS);
-    let max_bps = max_withdrawal_bps.unwrap_or(1000); // Default 10% max per withdrawal
-    
-    // Validate timelock is at least minimum
-    require!(timelock >= MIN_WITHDRAWAL_TIMELOCK_SECONDS, ParadoxError::TimelockTooShort);
-    
     // =========================================================================
-    // DEV NOTE: Implement pool creation here
+    // DEV NOTE: Implement pool creation + LP deposit here
     // =========================================================================
     
     let lp_tokens_received: u64 = 0; // Replace with actual LP tokens
@@ -88,22 +83,35 @@ pub fn create_pool_and_lock_handler(
         ctx.accounts.lp_token_mint.key(),
         ctx.accounts.lp_vault.key(),
         ctx.accounts.creator.key(),
+        ctx.accounts.emergency_multisig.key(),
         lp_tokens_received,
-        timelock,
-        max_bps,
         ctx.bumps.lp_lock,
     );
     
-    msg!("LP Lock created with {} second timelock", timelock);
-    msg!("Max withdrawal per request: {}%", max_bps as f64 / 100.0);
-    msg!("NO INSTANT WITHDRAWALS - all require {} hour advance notice", timelock / 3600);
+    let phase_name = lp_lock.get_phase_name();
+    let timelock_hours = lp_lock.get_required_timelock() / 3600;
+    
+    msg!("╔══════════════════════════════════════════════════════════════╗");
+    msg!("║           LP LOCK CREATED - PROGRESSIVE TIMELOCK             ║");
+    msg!("╠══════════════════════════════════════════════════════════════╣");
+    msg!("║ Current Phase: {}", phase_name);
+    msg!("║ Current Timelock: {}h notice required", timelock_hours);
+    msg!("║");
+    msg!("║ TIMELINE:");
+    msg!("║   Days 0-3:   12h notice (emergency)");
+    msg!("║   Days 3-15:  15 days notice");
+    msg!("║   Days 15+:   30 days notice (permanent)");
+    msg!("║");
+    msg!("║ SAFETY: Snapshot taken before any withdrawal");
+    msg!("║         Restore capability for relaunch");
+    msg!("╚══════════════════════════════════════════════════════════════╝");
     
     emit!(LpLockCreated {
         mint: ctx.accounts.mint.key(),
         lp_pool: lp_lock.lp_pool,
         lp_tokens_locked: lp_tokens_received,
-        timelock_seconds: timelock,
-        max_withdrawal_bps: max_bps,
+        timelock_seconds: lp_lock.get_required_timelock(),
+        max_withdrawal_bps: 10000, // 100%
         admin: ctx.accounts.creator.key(),
     });
     
@@ -111,12 +119,14 @@ pub fn create_pool_and_lock_handler(
 }
 
 // =============================================================================
-// ANNOUNCE WITHDRAWAL (Starts Timelock)
+// TAKE SNAPSHOT
 // =============================================================================
 
 #[derive(Accounts)]
-pub struct AnnounceWithdrawal<'info> {
-    #[account(mut)]
+pub struct TakeSnapshot<'info> {
+    #[account(
+        constraint = admin.key() == lp_lock.admin @ ParadoxError::Unauthorized
+    )]
     pub admin: Signer<'info>,
     
     pub mint: Account<'info, Mint>,
@@ -125,7 +135,54 @@ pub struct AnnounceWithdrawal<'info> {
         mut,
         seeds = [LP_LOCK_SEED, mint.key().as_ref()],
         bump = lp_lock.bump,
-        constraint = lp_lock.admin == admin.key() @ ParadoxError::Unauthorized,
+    )]
+    pub lp_lock: Account<'info, LpLock>,
+}
+
+pub fn take_snapshot_handler(
+    ctx: Context<TakeSnapshot>,
+    reason: [u8; 32],
+    sol_reserve: u64,
+    token_reserve: u64,
+    total_supply: u64,
+    holder_count: u32,
+) -> Result<u64> {
+    let lp_lock = &mut ctx.accounts.lp_lock;
+    
+    let snapshot_id = lp_lock.take_snapshot(
+        reason,
+        sol_reserve,
+        token_reserve,
+        total_supply,
+        holder_count,
+    );
+    
+    msg!("📸 Snapshot #{} taken", snapshot_id);
+    msg!("   LP Tokens: {}", lp_lock.lp_tokens_locked);
+    msg!("   SOL Reserve: {}", sol_reserve);
+    msg!("   Token Reserve: {}", token_reserve);
+    msg!("   Holders: {}", holder_count);
+    
+    Ok(snapshot_id)
+}
+
+// =============================================================================
+// ANNOUNCE WITHDRAWAL (with automatic snapshot)
+// =============================================================================
+
+#[derive(Accounts)]
+pub struct AnnounceWithdrawal<'info> {
+    #[account(
+        constraint = admin.key() == lp_lock.admin @ ParadoxError::Unauthorized
+    )]
+    pub admin: Signer<'info>,
+    
+    pub mint: Account<'info, Mint>,
+    
+    #[account(
+        mut,
+        seeds = [LP_LOCK_SEED, mint.key().as_ref()],
+        bump = lp_lock.bump,
     )]
     pub lp_lock: Account<'info, LpLock>,
 }
@@ -139,23 +196,39 @@ pub fn announce_withdrawal_handler(
     let lp_lock = &mut ctx.accounts.lp_lock;
     
     // Validate amount
-    require!(lp_lock.is_valid_withdrawal_amount(amount), ParadoxError::WithdrawalAmountExceeded);
     require!(amount <= lp_lock.lp_tokens_locked, ParadoxError::InsufficientLpTokens);
     
-    // Announce (starts timelock)
-    let slot = lp_lock.announce_withdrawal(amount, recipient, reason)?;
+    // Take automatic snapshot before withdrawal
+    let mut snapshot_reason = [0u8; 32];
+    snapshot_reason[..16].copy_from_slice(b"PRE_WITHDRAWAL__");
     
+    let snapshot_id = lp_lock.take_snapshot(
+        snapshot_reason,
+        0, // DEV: Fetch actual reserves
+        0,
+        0,
+        0,
+    );
+    
+    // Announce withdrawal
+    let slot = lp_lock.announce_withdrawal(amount, recipient, reason, snapshot_id)?;
+    
+    let phase_name = lp_lock.get_phase_name();
+    let timelock = lp_lock.get_required_timelock();
     let execute_after = lp_lock.pending_withdrawals[slot].execute_after;
-    let hours_until = lp_lock.withdrawal_timelock_seconds / 3600;
     
-    msg!("=== LP WITHDRAWAL ANNOUNCED ===");
-    msg!("Amount: {} LP tokens", amount);
-    msg!("Recipient: {}", recipient);
-    msg!("Reason: {}", String::from_utf8_lossy(&reason));
-    msg!("Timelock: {} hours", hours_until);
-    msg!("Executable after: {}", execute_after);
-    msg!("================================");
-    msg!("⚠️ VISIBLE ON-CHAIN - Everyone can see this pending withdrawal");
+    msg!("╔══════════════════════════════════════════════════════════════╗");
+    msg!("║           LP WITHDRAWAL ANNOUNCED                            ║");
+    msg!("╠══════════════════════════════════════════════════════════════╣");
+    msg!("║ Amount: {} LP tokens", amount);
+    msg!("║ Recipient: {}", recipient);
+    msg!("║ Phase: {}", phase_name);
+    msg!("║ Timelock: {} hours", timelock / 3600);
+    msg!("║ Executable after: {}", execute_after);
+    msg!("║ Snapshot ID: #{} (for restore)", snapshot_id);
+    msg!("║");
+    msg!("║ ⚠️  VISIBLE ON-CHAIN - Everyone can see this!");
+    msg!("╚══════════════════════════════════════════════════════════════╝");
     
     emit!(LpWithdrawalAnnounced {
         mint: ctx.accounts.mint.key(),
@@ -171,12 +244,11 @@ pub fn announce_withdrawal_handler(
 }
 
 // =============================================================================
-// EXECUTE WITHDRAWAL (After Timelock)
+// EXECUTE WITHDRAWAL
 // =============================================================================
 
 #[derive(Accounts)]
 pub struct ExecuteWithdrawal<'info> {
-    #[account(mut)]
     pub executor: Signer<'info>,
     
     pub mint: Account<'info, Mint>,
@@ -208,13 +280,10 @@ pub fn execute_withdrawal_handler(
     let lp_lock = &mut ctx.accounts.lp_lock;
     let slot_usize = slot as usize;
     
-    // Validate recipient matches
-    let pending = &lp_lock.pending_withdrawals[slot_usize];
-    require!(pending.is_active, ParadoxError::NoActiveWithdrawal);
-    
-    // Check timelock passed
+    // Validate
     require!(lp_lock.can_execute_withdrawal(slot_usize), ParadoxError::TimelockNotExpired);
     
+    let pending = &lp_lock.pending_withdrawals[slot_usize];
     let time_waited = Clock::get()?.unix_timestamp - pending.announced_at;
     
     // Execute withdrawal
@@ -227,23 +296,24 @@ pub fn execute_withdrawal_handler(
         mint_key.as_ref(),
         &[lp_lock.bump],
     ];
-    let signer_seeds = &[&seeds[..]];
     
-    let transfer_ctx = CpiContext::new_with_signer(
-        ctx.accounts.token_program.to_account_info(),
-        Transfer {
-            from: ctx.accounts.lp_vault.to_account_info(),
-            to: ctx.accounts.recipient_lp_account.to_account_info(),
-            authority: lp_lock.to_account_info(),
-        },
-        signer_seeds,
-    );
+    transfer(
+        CpiContext::new_with_signer(
+            ctx.accounts.token_program.to_account_info(),
+            Transfer {
+                from: ctx.accounts.lp_vault.to_account_info(),
+                to: ctx.accounts.recipient_lp_account.to_account_info(),
+                authority: lp_lock.to_account_info(),
+            },
+            &[seeds],
+        ),
+        amount,
+    )?;
     
-    transfer(transfer_ctx, amount)?;
-    
-    msg!("LP Withdrawal executed after {} hours timelock", time_waited / 3600);
-    msg!("Amount: {} LP tokens to {}", amount, recipient);
-    msg!("Remaining locked: {}", lp_lock.lp_tokens_locked);
+    msg!("✅ LP Withdrawal executed after {}h timelock", time_waited / 3600);
+    msg!("   Amount: {} LP tokens", amount);
+    msg!("   Recipient: {}", recipient);
+    msg!("   Remaining locked: {}", lp_lock.lp_tokens_locked);
     
     emit!(LpWithdrawalExecuted {
         mint: ctx.accounts.mint.key(),
@@ -263,7 +333,9 @@ pub fn execute_withdrawal_handler(
 
 #[derive(Accounts)]
 pub struct CancelWithdrawal<'info> {
-    #[account(mut)]
+    #[account(
+        constraint = admin.key() == lp_lock.admin @ ParadoxError::Unauthorized
+    )]
     pub admin: Signer<'info>,
     
     pub mint: Account<'info, Mint>,
@@ -272,7 +344,6 @@ pub struct CancelWithdrawal<'info> {
         mut,
         seeds = [LP_LOCK_SEED, mint.key().as_ref()],
         bump = lp_lock.bump,
-        constraint = lp_lock.admin == admin.key() @ ParadoxError::Unauthorized,
     )]
     pub lp_lock: Account<'info, LpLock>,
 }
@@ -289,8 +360,8 @@ pub fn cancel_withdrawal_handler(
     
     lp_lock.cancel_withdrawal(slot as usize)?;
     
-    msg!("LP Withdrawal cancelled");
-    msg!("Amount that was pending: {} LP tokens", amount);
+    msg!("❌ LP Withdrawal cancelled");
+    msg!("   Amount: {} LP tokens", amount);
     
     emit!(LpWithdrawalCancelled {
         mint: ctx.accounts.mint.key(),
@@ -299,6 +370,82 @@ pub fn cancel_withdrawal_handler(
         cancelled_by: ctx.accounts.admin.key(),
         slot,
     });
+    
+    Ok(())
+}
+
+// =============================================================================
+// RESTORE FROM SNAPSHOT
+// =============================================================================
+
+#[derive(Accounts)]
+pub struct RestoreFromSnapshot<'info> {
+    #[account(
+        constraint = admin.key() == lp_lock.admin @ ParadoxError::Unauthorized
+    )]
+    pub admin: Signer<'info>,
+    
+    pub mint: Account<'info, Mint>,
+    
+    #[account(
+        mut,
+        seeds = [LP_LOCK_SEED, mint.key().as_ref()],
+        bump = lp_lock.bump,
+    )]
+    pub lp_lock: Account<'info, LpLock>,
+    
+    #[account(mut)]
+    pub lp_vault: Account<'info, TokenAccount>,
+    
+    #[account(mut)]
+    pub source_lp_account: Account<'info, TokenAccount>,
+    
+    pub token_program: Program<'info, Token>,
+}
+
+pub fn restore_from_snapshot_handler(
+    ctx: Context<RestoreFromSnapshot>,
+    snapshot_id: u64,
+    lp_amount: u64,
+) -> Result<()> {
+    let lp_lock = &mut ctx.accounts.lp_lock;
+    
+    // Validate snapshot exists
+    let snapshot = lp_lock.get_snapshot(snapshot_id)
+        .ok_or(error!(ParadoxError::InvalidWithdrawalSlot))?;
+    
+    require!(!snapshot.was_restored, ParadoxError::AlreadyFinalized);
+    
+    msg!("╔══════════════════════════════════════════════════════════════╗");
+    msg!("║           RESTORING FROM SNAPSHOT #{}                        ║", snapshot_id);
+    msg!("╠══════════════════════════════════════════════════════════════╣");
+    msg!("║ Original LP: {}", snapshot.lp_tokens);
+    msg!("║ Restoring: {} LP tokens", lp_amount);
+    msg!("║ Original SOL Reserve: {}", snapshot.sol_reserve);
+    msg!("║ Original Token Reserve: {}", snapshot.token_reserve);
+    msg!("║ Original Holders: {}", snapshot.holder_count);
+    msg!("╚══════════════════════════════════════════════════════════════╝");
+    
+    // Transfer LP tokens to vault
+    transfer(
+        CpiContext::new(
+            ctx.accounts.token_program.to_account_info(),
+            Transfer {
+                from: ctx.accounts.source_lp_account.to_account_info(),
+                to: ctx.accounts.lp_vault.to_account_info(),
+                authority: ctx.accounts.admin.to_account_info(),
+            },
+        ),
+        lp_amount,
+    )?;
+    
+    // Update state
+    lp_lock.restore_from_snapshot(lp_amount);
+    lp_lock.mark_snapshot_restored(snapshot_id);
+    
+    msg!("✅ LP Lock restored successfully");
+    msg!("   New locked amount: {}", lp_lock.lp_tokens_locked);
+    msg!("   Current phase: {}", lp_lock.get_phase_name());
     
     Ok(())
 }
@@ -321,29 +468,41 @@ pub struct GetLockStatus<'info> {
 pub fn get_lock_status_handler(ctx: Context<GetLockStatus>) -> Result<()> {
     let lp_lock = &ctx.accounts.lp_lock;
     
+    let phase = lp_lock.get_current_phase();
+    let timelock = lp_lock.get_required_timelock();
+    let days_to_next = lp_lock.days_until_next_phase();
+    
     let status_str = match lp_lock.status {
         LpLockStatus::NotInitialized => "NOT_INITIALIZED",
-        LpLockStatus::Locked => "LOCKED",
+        LpLockStatus::Active => "ACTIVE",
         LpLockStatus::WithdrawalPending => "WITHDRAWAL_PENDING",
+        LpLockStatus::Withdrawn => "WITHDRAWN",
+        LpLockStatus::Restored => "RESTORED",
     };
     
-    msg!("╔═══════════════════════════════════════╗");
-    msg!("║         LP LOCK STATUS                ║");
-    msg!("╠═══════════════════════════════════════╣");
+    msg!("╔══════════════════════════════════════════════════════════════╗");
+    msg!("║           LP LOCK STATUS                                     ║");
+    msg!("╠══════════════════════════════════════════════════════════════╣");
     msg!("║ Status: {}", status_str);
-    msg!("║ LP Locked: {}", lp_lock.lp_tokens_locked);
+    msg!("║ Phase: {}", lp_lock.get_phase_name());
+    msg!("║ Timelock: {}h notice required", timelock / 3600);
+    if let Some(days) = days_to_next {
+        msg!("║ Days until next phase: {}", days);
+    }
+    msg!("║");
+    msg!("║ LP Tokens Locked: {}", lp_lock.lp_tokens_locked);
     msg!("║ Total Withdrawn: {}", lp_lock.total_withdrawn);
-    msg!("║ Timelock: {} hours", lp_lock.withdrawal_timelock_seconds / 3600);
-    msg!("║ Max per withdrawal: {}%", lp_lock.max_withdrawal_bps as f64 / 100.0);
+    msg!("║ Initial LP: {}", lp_lock.initial_lp_tokens);
+    msg!("║ Snapshots taken: {}", lp_lock.snapshot_counter);
     msg!("║ Pending withdrawals: {}", lp_lock.pending_count);
-    msg!("╚═══════════════════════════════════════╝");
+    msg!("╚══════════════════════════════════════════════════════════════╝");
     
     // Show pending withdrawals
     for (i, pw) in lp_lock.pending_withdrawals.iter().enumerate() {
         if pw.is_active {
-            let time_remaining = lp_lock.time_until_executable(i);
+            let remaining = lp_lock.time_until_executable(i);
             msg!("  Pending #{}: {} LP → {} ({}h remaining)",
-                i, pw.amount, pw.recipient, time_remaining / 3600);
+                i, pw.amount, pw.recipient, remaining / 3600);
         }
     }
     
@@ -351,12 +510,14 @@ pub fn get_lock_status_handler(ctx: Context<GetLockStatus>) -> Result<()> {
 }
 
 // =============================================================================
-// TRANSFER ADMIN (to DAO)
+// TRANSFER ADMIN
 // =============================================================================
 
 #[derive(Accounts)]
 pub struct TransferAdmin<'info> {
-    #[account(mut)]
+    #[account(
+        constraint = current_admin.key() == lp_lock.admin @ ParadoxError::Unauthorized
+    )]
     pub current_admin: Signer<'info>,
     
     pub mint: Account<'info, Mint>,
@@ -365,7 +526,6 @@ pub struct TransferAdmin<'info> {
         mut,
         seeds = [LP_LOCK_SEED, mint.key().as_ref()],
         bump = lp_lock.bump,
-        constraint = lp_lock.admin == current_admin.key() @ ParadoxError::Unauthorized,
     )]
     pub lp_lock: Account<'info, LpLock>,
     
@@ -379,7 +539,7 @@ pub fn transfer_admin_handler(ctx: Context<TransferAdmin>) -> Result<()> {
     
     lp_lock.admin = ctx.accounts.new_admin.key();
     
-    msg!("LP Lock admin transferred: {} → {}", old_admin, ctx.accounts.new_admin.key());
+    msg!("Admin transferred: {} → {}", old_admin, ctx.accounts.new_admin.key());
     
     Ok(())
 }

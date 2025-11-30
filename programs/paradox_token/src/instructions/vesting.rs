@@ -62,7 +62,9 @@ pub fn init_dev_handler(
     let vault = &mut ctx.accounts.vault;
     let clock = Clock::get()?;
     
-    let locked_amount = total_allocation.checked_sub(liquid_at_tge).unwrap();
+    let locked_amount = total_allocation
+        .checked_sub(liquid_at_tge)
+        .ok_or(ParadoxError::MathOverflow)?;
     
     vault.dev = ctx.accounts.dev.key();
     vault.mint = ctx.accounts.mint.key();

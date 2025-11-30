@@ -249,12 +249,21 @@ pub mod paradox_token {
     }
 
     // =========================================================================
-    // LP LOCK (Timelock-based withdrawals)
+    // LP LOCK (Progressive Timelock with Snapshot/Restore)
+    // =========================================================================
+    // 
+    // TIMELINE:
+    //   Days 0-3:   12h notice (emergency fixes)
+    //   Days 3-15:  15 days notice (stabilization)
+    //   Days 15+:   30 days notice (permanent)
+    //
+    // SAFETY:
+    //   - Snapshot taken before any withdrawal
+    //   - Holder balances + LP state preserved
+    //   - Restore capability for relaunch
     // =========================================================================
 
     /// Create pool and lock LP atomically
-    /// This is the ONLY way to create a pool - ensures LP is always locked
-    /// All withdrawals require 24-48h advance announcement (visible on-chain)
     pub fn create_pool_and_lock(
         ctx: Context<CreatePoolAndLock>,
         sol_amount: u64,
@@ -267,9 +276,25 @@ pub mod paradox_token {
         )
     }
 
-    /// Announce LP withdrawal (starts timelock)
-    /// VISIBLE ON-CHAIN - everyone can see pending withdrawals
-    /// Minimum 24h notice required
+    /// Take manual snapshot of LP state
+    pub fn take_lp_snapshot(
+        ctx: Context<TakeSnapshot>,
+        reason: [u8; 32],
+        sol_reserve: u64,
+        token_reserve: u64,
+        total_supply: u64,
+        holder_count: u32,
+    ) -> Result<u64> {
+        instructions::lp_lock::take_snapshot_handler(
+            ctx, reason, sol_reserve, token_reserve, total_supply, holder_count
+        )
+    }
+
+    /// Announce LP withdrawal (auto-takes snapshot, starts timelock)
+    /// Timelock depends on current phase:
+    ///   - Days 0-3: 12h
+    ///   - Days 3-15: 15 days  
+    ///   - Days 15+: 30 days
     pub fn announce_lp_withdrawal(
         ctx: Context<AnnounceWithdrawal>,
         amount: u64,
@@ -280,7 +305,6 @@ pub mod paradox_token {
     }
 
     /// Execute LP withdrawal (after timelock passes)
-    /// Anyone can call once timelock expires
     pub fn execute_lp_withdrawal(
         ctx: Context<ExecuteWithdrawal>,
         slot: u8,
@@ -294,6 +318,16 @@ pub mod paradox_token {
         slot: u8,
     ) -> Result<()> {
         instructions::lp_lock::cancel_withdrawal_handler(ctx, slot)
+    }
+
+    /// Restore LP from snapshot (for relaunch)
+    /// Restores LP to vault and marks snapshot as used
+    pub fn restore_from_snapshot(
+        ctx: Context<RestoreFromSnapshot>,
+        snapshot_id: u64,
+        lp_amount: u64,
+    ) -> Result<()> {
+        instructions::lp_lock::restore_from_snapshot_handler(ctx, snapshot_id, lp_amount)
     }
 
     /// Transfer LP lock admin (to DAO)

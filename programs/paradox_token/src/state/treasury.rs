@@ -81,12 +81,11 @@ impl DaoTreasuryVault {
         32;  // reserved
     
     /// Get maximum spendable amount in current period
+    /// Uses saturating arithmetic - safe for all inputs
     pub fn max_spendable(&self) -> u64 {
         let max_spend = self.balance
-            .checked_mul(self.max_spend_bps_per_period as u64)
-            .unwrap()
-            .checked_div(10_000)
-            .unwrap();
+            .saturating_mul(self.max_spend_bps_per_period as u64)
+            / 10_000;
         
         max_spend.saturating_sub(self.spent_this_period)
     }

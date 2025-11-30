@@ -84,24 +84,19 @@ impl TokenConfig {
     }
     
     /// Calculate fee distribution for a given amount
+    /// Uses saturating arithmetic - safe for all inputs
     pub fn calculate_distribution(&self, fee_amount: u64) -> (u64, u64, u64) {
         let to_lp = fee_amount
-            .checked_mul(self.lp_share_bps as u64)
-            .unwrap()
-            .checked_div(10_000)
-            .unwrap();
+            .saturating_mul(self.lp_share_bps as u64)
+            / 10_000;
         
         let to_burn = fee_amount
-            .checked_mul(self.burn_share_bps as u64)
-            .unwrap()
-            .checked_div(10_000)
-            .unwrap();
+            .saturating_mul(self.burn_share_bps as u64)
+            / 10_000;
         
         let to_treasury = fee_amount
-            .checked_sub(to_lp)
-            .unwrap()
-            .checked_sub(to_burn)
-            .unwrap();
+            .saturating_sub(to_lp)
+            .saturating_sub(to_burn);
         
         (to_lp, to_burn, to_treasury)
     }

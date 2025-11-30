@@ -112,16 +112,16 @@ impl DevVestingVault {
     }
     
     /// Calculate maximum unlockable amount based on rate
+    /// Uses saturating arithmetic - safe for all inputs
     pub fn max_unlockable(&self) -> u64 {
         // Rate is in bps (e.g., 500 = 5%)
         self.locked_amount
-            .checked_mul(self.unlock_rate_bps as u64)
-            .unwrap()
-            .checked_div(10_000)
-            .unwrap()
+            .saturating_mul(self.unlock_rate_bps as u64)
+            / 10_000
     }
     
     /// Calculate vested amount based on time
+    /// Uses saturating arithmetic - safe for all inputs
     pub fn vested_amount(&self, current_time: i64) -> u64 {
         if !self.cliff_passed(current_time) {
             return 0;
@@ -130,17 +130,15 @@ impl DevVestingVault {
         let time_since_cliff = current_time - (self.initialized_at + self.cliff_seconds);
         let vesting_time = self.vesting_seconds - self.cliff_seconds;
         
-        if time_since_cliff >= vesting_time {
+        if time_since_cliff >= vesting_time || vesting_time <= 0 {
             // Fully vested
             return self.total_locked;
         }
         
-        // Linear vesting
+        // Linear vesting - safe division
         self.total_locked
-            .checked_mul(time_since_cliff as u64)
-            .unwrap()
-            .checked_div(vesting_time as u64)
-            .unwrap()
+            .saturating_mul(time_since_cliff as u64)
+            / (vesting_time as u64).max(1)
     }
     
     /// Update unlock rate based on time since TGE
