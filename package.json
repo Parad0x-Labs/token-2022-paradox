@@ -1,0 +1,40 @@
+{
+  "name": "@labsx402/token-2022-paradox",
+  "version": "1.0.0",
+  "description": "Token-2022 Paradox Edition - SPL Token with transfer fees, LP growth, and vesting",
+  "main": "sdk/dist/index.js",
+  "types": "sdk/dist/index.d.ts",
+  "scripts": {
+    "build": "anchor build",
+    "test": "anchor test",
+    "deploy:devnet": "anchor deploy --provider.cluster devnet",
+    "sdk:build": "cd sdk && npm run build",
+    "sdk:test": "cd sdk && npm test"
+  },
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/LabsX402/token-2022-paradox"
+  },
+  "keywords": [
+    "solana",
+    "token-2022",
+    "spl-token",
+    "transfer-fee",
+    "defi",
+    "vesting"
+  ],
+  "author": "LabsX402 <https://x.com/LabsX402>",
+  "license": "BUSL-1.1",
+  "bugs": {
+    "url": "https://github.com/LabsX402/token-2022-paradox/issues"
+  },
+  "homepage": "https://github.com/LabsX402/token-2022-paradox#readme",
+  "devDependencies": {
+    "@coral-xyz/anchor": "^0.32.0",
+    "@solana/web3.js": "^1.95.0",
+    "@solana/spl-token": "^0.4.0",
+    "typescript": "^5.0.0",
+    "ts-node": "^10.9.0"
+  }
+}
+

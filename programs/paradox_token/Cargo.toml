@@ -1,0 +1,29 @@
+[package]
+name = "paradox-token"
+version = "1.0.0"
+description = "Token-2022 Paradox Edition - SPL Token with transfer fees, LP growth, and vesting"
+authors = ["LabsX402 <https://x.com/LabsX402>"]
+repository = "https://github.com/LabsX402/token-2022-paradox"
+license = "BUSL-1.1"
+edition = "2021"
+
+[lib]
+crate-type = ["cdylib", "lib"]
+name = "paradox_token"
+
+[features]
+no-entrypoint = []
+no-idl = []
+no-log-ix-name = []
+cpi = ["no-entrypoint"]
+default = []
+
+[dependencies]
+anchor-lang = "0.32.0"
+anchor-spl = "0.32.0"
+
+[dev-dependencies]
+solana-program-test = "1.18"
+solana-sdk = "1.18"
+tokio = "1.0"
+

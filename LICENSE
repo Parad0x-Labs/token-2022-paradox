@@ -1,0 +1,58 @@
+Business Source License 1.1
+
+License text copyright (c) 2025 LabsX402
+Licensed work: Token-2022 Paradox Edition
+
+Change Date: 2028-12-01
+Change License: MIT
+
+Usage Grant: You may use this software for non-commercial purposes only.
+Commercial use requires a separate license from LabsX402.
+
+Parameters:
+- Licensor: LabsX402 (https://x.com/LabsX402)
+- Licensed Work: Token-2022 Paradox Edition
+- Additional Use Grant: None
+- Change Date: December 1, 2028
+- Change License: MIT License
+
+Terms:
+The Licensor hereby grants you the right to copy, modify, create derivative
+works, redistribute, and make non-production use of the Licensed Work.
+
+If your use of the Licensed Work does not comply with the requirements
+currently in effect as described in this License, you must purchase a
+commercial license from the Licensor, its affiliated entities, or authorized
+resellers.
+
+WHAT YOU CAN DO:
+✓ View, study, and learn from the code
+✓ Run on devnet/testnet for evaluation
+✓ Fork for personal/educational use
+✓ Build integrations for testing
+✓ Reference in research papers
+
+WHAT REQUIRES COMMERCIAL LICENSE:
+✗ Running in production with real funds
+✗ Offering as a service (SaaS)
+✗ Integrating into commercial products
+✗ Competing products using this architecture
+
+ATTRIBUTION REQUIRED:
+All derivative works must include:
+  "Made by LabsX402 for Solana"
+  "https://x.com/LabsX402"
+
+NOTICE:
+This software is provided "as is", without warranty of any kind.
+
+After the Change Date (December 1, 2028), this license converts to MIT,
+allowing full commercial use.
+
+For commercial licensing inquiries: https://x.com/LabsX402
+
+---
+
+Made by LabsX402 for Solana
+https://x.com/LabsX402
+
