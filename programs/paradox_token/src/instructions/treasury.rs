@@ -23,8 +23,8 @@ use crate::{
 /// Seed for DAO Treasury PDA
 pub const DAO_TREASURY_SEED: &[u8] = b"dao_treasury";
 
-/// Token decimals (6 for PDOX)
-const TOKEN_DECIMALS: u8 = 6;
+/// Token decimals (9 for PDOX - matches deployed mint)
+const TOKEN_DECIMALS: u8 = 9;
 
 // =============================================================================
 // INIT DAO TREASURY
