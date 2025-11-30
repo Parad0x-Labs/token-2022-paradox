@@ -10,15 +10,15 @@
 
 | Component | Address | Link |
 |-----------|---------|------|
-| **PDOX Token** | `4ckvALSiB6Hii7iVY9Dt6LRM5i7xocBZ9yr3YGNtVRwF` | [View](https://solscan.io/token/4ckvALSiB6Hii7iVY9Dt6LRM5i7xocBZ9yr3YGNtVRwF?cluster=devnet) |
-| **LP Pool** | `3kScidMNvzT6m5bXn8VwEP3CrzdA57DngzpDDbSn9Jvc` | [View](https://solscan.io/account/3kScidMNvzT6m5bXn8VwEP3CrzdA57DngzpDDbSn9Jvc?cluster=devnet) |
-| **Parent Program** | `2R6Lus9psfB2dREDuC79ayfwd4peVfqG3Q42ca2iFhNV` | [View](https://solscan.io/account/2R6Lus9psfB2dREDuC79ayfwd4peVfqG3Q42ca2iFhNV?cluster=devnet) |
+| **PDOX Token V3** | `9umyHgCSv6xuAv6bczUsR7hBKqyCAZCmPcc4eVhAGrfN` | [View](https://solscan.io/token/9umyHgCSv6xuAv6bczUsR7hBKqyCAZCmPcc4eVhAGrfN?cluster=devnet) |
+| **LP Pool** | Orca Whirlpool SOL/PDOX | [View](https://www.orca.so/pools?chainId=solanaDevnet&tokens=So11111111111111111111111111111111111111112&tokens=9umyHgCSv6xuAv6bczUsR7hBKqyCAZCmPcc4eVhAGrfN) |
+| **Parent Program** | `7j4qvD77zadbvrKYmahMQbFS5f8tEseW9kj62LYuWmer` | [View](https://solscan.io/account/7j4qvD77zadbvrKYmahMQbFS5f8tEseW9kj62LYuWmer?cluster=devnet) |
 
 **Token Specs:**
 - Type: Token-2022 (SPL Token Extensions)
 - Transfer Fee: 3%
-- Supply: 1,000,000,000 PDOX
-- LP: Raydium CLMM (SOL/PDOX)
+- Supply: 10,000,000 PDOX (mint authority retained)
+- LP: Orca Whirlpool (SOL/PDOX) - 10 SOL + 10M PDOX
 
 ---
 
