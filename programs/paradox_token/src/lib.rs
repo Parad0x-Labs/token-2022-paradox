@@ -219,6 +219,11 @@ pub mod paradox_token {
     // ARMAGEDDON MODE (Emergency)
     // =========================================================================
 
+    /// Initialize Armageddon state account
+    pub fn init_armageddon(ctx: Context<InitArmageddon>) -> Result<()> {
+        instructions::armageddon::init_armageddon_handler(ctx)
+    }
+
     /// Trigger Armageddon mode
     /// Emergency response when LP drops significantly
     pub fn trigger_armageddon(
@@ -355,9 +360,6 @@ pub enum ParadoxError {
 
     #[msg("Timelock too short (minimum 24 hours)")]
     TimelockTooShort,
-
-    #[msg("Timelock not expired yet")]
-    TimelockNotExpired,
 
     #[msg("Withdrawal amount exceeds maximum allowed")]
     WithdrawalAmountExceeded,

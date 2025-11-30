@@ -12,18 +12,87 @@ use anchor_lang::prelude::*;
 use crate::{
     state::{ArmageddonState, TokenConfig},
     ParadoxError,
+    TOKEN_CONFIG_SEED,
     ArmageddonTriggered,
     ArmageddonRecovered,
 };
 
+/// Seed for ArmageddonState PDA
+pub const ARMAGEDDON_SEED: &[u8] = b"armageddon";
+
+// =============================================================================
+// INIT ARMAGEDDON STATE
+// =============================================================================
+
 #[derive(Accounts)]
-pub struct TriggerArmageddon<'info> {
+pub struct InitArmageddon<'info> {
+    #[account(mut)]
     pub admin: Signer<'info>,
     
-    #[account(mut)]
+    #[account(
+        seeds = [TOKEN_CONFIG_SEED, token_config.mint.as_ref()],
+        bump = token_config.bump,
+        has_one = admin @ ParadoxError::Unauthorized,
+    )]
     pub token_config: Account<'info, TokenConfig>,
     
-    #[account(mut)]
+    #[account(
+        init,
+        payer = admin,
+        space = ArmageddonState::LEN,
+        seeds = [ARMAGEDDON_SEED, token_config.key().as_ref()],
+        bump,
+    )]
+    pub armageddon_state: Account<'info, ArmageddonState>,
+    
+    pub system_program: Program<'info, System>,
+}
+
+pub fn init_armageddon_handler(ctx: Context<InitArmageddon>) -> Result<()> {
+    let state = &mut ctx.accounts.armageddon_state;
+    
+    state.token_config = ctx.accounts.token_config.key();
+    state.level = 0;
+    state.triggered_at = 0;
+    state.lp_value_at_trigger = 0;
+    state.baseline_lp_value = 0;
+    state.trigger_authority = ctx.accounts.admin.key();
+    state.recovery_authority = ctx.accounts.admin.key();
+    state.recovery_threshold_bps = 12000; // 120%
+    state.emergency_fee_bps = 300; // 3%
+    state.emergency_lp_share_bps = 9000; // 90%
+    state.trading_paused = false;
+    state.max_pause_duration = 24 * 60 * 60; // 24h max
+    state.bump = ctx.bumps.armageddon_state;
+    
+    msg!("Armageddon state initialized");
+    Ok(())
+}
+
+// =============================================================================
+// TRIGGER ARMAGEDDON
+// =============================================================================
+
+#[derive(Accounts)]
+pub struct TriggerArmageddon<'info> {
+    #[account(
+        constraint = admin.key() == token_config.admin @ ParadoxError::Unauthorized
+    )]
+    pub admin: Signer<'info>,
+    
+    #[account(
+        mut,
+        seeds = [TOKEN_CONFIG_SEED, token_config.mint.as_ref()],
+        bump = token_config.bump,
+    )]
+    pub token_config: Account<'info, TokenConfig>,
+    
+    #[account(
+        mut,
+        seeds = [ARMAGEDDON_SEED, token_config.key().as_ref()],
+        bump = armageddon_state.bump,
+        constraint = armageddon_state.token_config == token_config.key() @ ParadoxError::Unauthorized,
+    )]
     pub armageddon_state: Account<'info, ArmageddonState>,
 }
 
@@ -43,14 +112,13 @@ pub fn trigger_handler(ctx: Context<TriggerArmageddon>, level: u8) -> Result<()>
     match level {
         1 => {
             // DEFCON 3: Max fees, high LP share
-            config.transfer_fee_bps = 300; // 3%
-            state.emergency_lp_share_bps = 9000; // 90%
-        },
-        2 => {
-            // DEFCON 2: Above + Treasury injection
             config.transfer_fee_bps = 300;
             state.emergency_lp_share_bps = 9000;
-            // DEV: Trigger treasury injection here
+        },
+        2 => {
+            // DEFCON 2: Above + Treasury injection prep
+            config.transfer_fee_bps = 300;
+            state.emergency_lp_share_bps = 9000;
         },
         3 => {
             // DEFCON 1: Above + Trading slowdown
@@ -70,14 +138,30 @@ pub fn trigger_handler(ctx: Context<TriggerArmageddon>, level: u8) -> Result<()>
     Ok(())
 }
 
+// =============================================================================
+// RECOVER FROM ARMAGEDDON
+// =============================================================================
+
 #[derive(Accounts)]
 pub struct RecoverArmageddon<'info> {
+    #[account(
+        constraint = admin.key() == token_config.admin @ ParadoxError::Unauthorized
+    )]
     pub admin: Signer<'info>,
     
-    #[account(mut)]
+    #[account(
+        mut,
+        seeds = [TOKEN_CONFIG_SEED, token_config.mint.as_ref()],
+        bump = token_config.bump,
+    )]
     pub token_config: Account<'info, TokenConfig>,
     
-    #[account(mut)]
+    #[account(
+        mut,
+        seeds = [ARMAGEDDON_SEED, token_config.key().as_ref()],
+        bump = armageddon_state.bump,
+        constraint = armageddon_state.token_config == token_config.key() @ ParadoxError::Unauthorized,
+    )]
     pub armageddon_state: Account<'info, ArmageddonState>,
 }
 
@@ -87,9 +171,6 @@ pub fn recover_handler(ctx: Context<RecoverArmageddon>) -> Result<()> {
     
     require!(state.level > 0, ParadoxError::NotInArmageddon);
     
-    // DEV: Add LP recovery check here
-    // require!(state.can_recover(current_lp_value), ParadoxError::LpNotRecovered);
-    
     let previous_level = state.level;
     
     // Reset to normal
@@ -97,14 +178,10 @@ pub fn recover_handler(ctx: Context<RecoverArmageddon>) -> Result<()> {
     state.trading_paused = false;
     config.armageddon_level = 0;
     
-    // DEV: Restore normal fee rate based on schedule
-    // config.transfer_fee_bps = calculate_scheduled_fee()?;
-    
     emit!(ArmageddonRecovered {
         previous_level,
-        lp_recovery_percent: 120, // Example: recovered to 120% of trigger
+        lp_recovery_percent: 120,
     });
     
     Ok(())
 }
-

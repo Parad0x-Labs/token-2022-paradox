@@ -141,7 +141,7 @@ impl LpLock {
         max_withdrawal_bps: u16,
         bump: u8,
     ) {
-        let clock = Clock::get().unwrap();
+        let clock = Clock::get().expect("Clock sysvar required");
         
         self.mint = mint;
         self.lp_pool = lp_pool;
@@ -182,7 +182,7 @@ impl LpLock {
         recipient: Pubkey,
         reason: [u8; 64],
     ) -> Result<usize> {
-        let clock = Clock::get().unwrap();
+        let clock = Clock::get()?;
         
         // Find empty slot
         let slot = self.pending_withdrawals
@@ -216,8 +216,11 @@ impl LpLock {
             return false;
         }
         
-        let clock = Clock::get().unwrap();
-        clock.unix_timestamp >= pw.execute_after
+        // Safe: returns false if clock unavailable
+        match Clock::get() {
+            Ok(clock) => clock.unix_timestamp >= pw.execute_after,
+            Err(_) => false,
+        }
     }
     
     /// Get time remaining until withdrawal can execute
@@ -231,8 +234,11 @@ impl LpLock {
             return i64::MAX;
         }
         
-        let clock = Clock::get().unwrap();
-        (pw.execute_after - clock.unix_timestamp).max(0)
+        // Safe: returns MAX if clock unavailable
+        match Clock::get() {
+            Ok(clock) => (pw.execute_after - clock.unix_timestamp).max(0),
+            Err(_) => i64::MAX,
+        }
     }
     
     /// Execute a pending withdrawal

@@ -9,9 +9,10 @@ use anchor_lang::prelude::*;
 use anchor_spl::token::{Token, TokenAccount, Mint};
 
 use crate::{
-    state::LpGrowthManager,
+    state::{LpGrowthManager, TokenConfig},
     ParadoxError,
     LP_GROWTH_SEED,
+    TOKEN_CONFIG_SEED,
     LpGrowthInitialized,
     LpGrowthExecuted,
     LpGrowthLocked,
@@ -176,11 +177,15 @@ pub fn execute_handler(ctx: Context<ExecuteLpGrowth>) -> Result<()> {
     
     let tokens_minted = 0; // Replace with actual minted amount
     
-    // Update state
+    // Update state (checked arithmetic)
     manager.accumulated_fees = 0;
     manager.last_growth_time = clock.unix_timestamp;
-    manager.total_sol_added += sol_to_add;
-    manager.total_tokens_minted += tokens_minted;
+    manager.total_sol_added = manager.total_sol_added
+        .checked_add(sol_to_add)
+        .ok_or(ParadoxError::MathOverflow)?;
+    manager.total_tokens_minted = manager.total_tokens_minted
+        .checked_add(tokens_minted)
+        .ok_or(ParadoxError::MathOverflow)?;
     
     emit!(LpGrowthExecuted {
         mint: manager.mint,
@@ -198,8 +203,16 @@ pub fn execute_handler(ctx: Context<ExecuteLpGrowth>) -> Result<()> {
 
 #[derive(Accounts)]
 pub struct LockLpGrowth<'info> {
-    #[account(mut)]
+    #[account(
+        constraint = admin.key() == token_config.admin @ ParadoxError::Unauthorized
+    )]
     pub admin: Signer<'info>,
+    
+    #[account(
+        seeds = [TOKEN_CONFIG_SEED, lp_growth_manager.mint.as_ref()],
+        bump = token_config.bump,
+    )]
+    pub token_config: Account<'info, TokenConfig>,
     
     #[account(
         mut,
@@ -229,8 +242,16 @@ pub fn lock_handler(ctx: Context<LockLpGrowth>) -> Result<()> {
 
 #[derive(Accounts)]
 pub struct UnlockLpGrowth<'info> {
-    #[account(mut)]
+    #[account(
+        constraint = admin.key() == token_config.admin @ ParadoxError::Unauthorized
+    )]
     pub admin: Signer<'info>,
+    
+    #[account(
+        seeds = [TOKEN_CONFIG_SEED, lp_growth_manager.mint.as_ref()],
+        bump = token_config.bump,
+    )]
+    pub token_config: Account<'info, TokenConfig>,
     
     #[account(
         mut,

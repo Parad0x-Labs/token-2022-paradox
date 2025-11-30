@@ -58,8 +58,10 @@ pub fn distribute_handler(ctx: Context<DistributeFees>) -> Result<()> {
     
     msg!("Fee distribution: LP={}, Burn={}, Treasury={}", to_lp, to_burn, to_treasury);
     
-    // Update tracking
-    config.total_fees_distributed += total_fees;
+    // Update tracking (checked arithmetic)
+    config.total_fees_distributed = config.total_fees_distributed
+        .checked_add(total_fees)
+        .ok_or(crate::ParadoxError::MathOverflow)?;
     
     emit!(FeesDistributed {
         total_fees,
