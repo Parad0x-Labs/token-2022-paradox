@@ -92,15 +92,16 @@ impl ArmageddonState {
         32;  // reserved
     
     /// Check if LP has recovered enough to exit Armageddon
-    /// Uses saturating arithmetic - safe for all inputs
+    /// Uses u128 intermediate calculations to prevent overflow
     pub fn can_recover(&self, current_lp_value: u64) -> bool {
         if self.level == 0 {
             return false; // Not in Armageddon
         }
         
-        let recovery_target = self.lp_value_at_trigger
-            .saturating_mul(self.recovery_threshold_bps as u64)
-            / 10_000;
+        let recovery_target = ((self.lp_value_at_trigger as u128)
+            .saturating_mul(self.recovery_threshold_bps as u128)
+            .checked_div(10_000)
+            .unwrap_or(0)) as u64;
         
         current_lp_value >= recovery_target
     }

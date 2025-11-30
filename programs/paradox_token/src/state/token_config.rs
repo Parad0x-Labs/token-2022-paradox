@@ -6,6 +6,7 @@
  */
 
 use anchor_lang::prelude::*;
+use crate::ParadoxError;
 
 /// Token configuration account
 /// Stores fee rates, distribution shares, and admin keys
@@ -50,6 +51,15 @@ pub struct TokenConfig {
     /// Timestamp of last fee update
     pub last_fee_update: i64,
     
+    /// Pending fee change (announced but not executed)
+    pub pending_fee_bps: u16,
+    
+    /// Timestamp when pending fee change can be executed
+    pub pending_fee_activate_time: i64,
+    
+    /// Timestamp when pending fee change can be cancelled (after activate_time)
+    pub pending_fee_cancel_time: i64,
+    
     /// Bump seed for PDA
     pub bump: u8,
     
@@ -72,6 +82,9 @@ impl TokenConfig {
         1 +  // is_paused
         1 +  // armageddon_level
         8 +  // last_fee_update
+        2 +  // pending_fee_bps
+        8 +  // pending_fee_activate_time
+        8 +  // pending_fee_cancel_time
         1 +  // bump
         64;  // reserved
     
@@ -84,21 +97,28 @@ impl TokenConfig {
     }
     
     /// Calculate fee distribution for a given amount
-    /// Uses saturating arithmetic - safe for all inputs
-    pub fn calculate_distribution(&self, fee_amount: u64) -> (u64, u64, u64) {
-        let to_lp = fee_amount
-            .saturating_mul(self.lp_share_bps as u64)
-            / 10_000;
+    /// Uses u128 intermediate calculations to prevent overflow
+    pub fn calculate_distribution(&self, fee_amount: u64) -> Result<(u64, u64, u64)> {
+        // Use u128 for intermediate calculations to prevent overflow
+        let to_lp = ((fee_amount as u128)
+            .checked_mul(self.lp_share_bps as u128)
+            .ok_or(error!(crate::ParadoxError::MathOverflow))?
+            .checked_div(10_000)
+            .ok_or(error!(crate::ParadoxError::MathOverflow))?) as u64;
         
-        let to_burn = fee_amount
-            .saturating_mul(self.burn_share_bps as u64)
-            / 10_000;
+        let to_burn = ((fee_amount as u128)
+            .checked_mul(self.burn_share_bps as u128)
+            .ok_or(error!(crate::ParadoxError::MathOverflow))?
+            .checked_div(10_000)
+            .ok_or(error!(crate::ParadoxError::MathOverflow))?) as u64;
         
+        // Treasury gets remainder to ensure exact distribution
         let to_treasury = fee_amount
-            .saturating_sub(to_lp)
-            .saturating_sub(to_burn);
+            .checked_sub(to_lp)
+            .and_then(|v| v.checked_sub(to_burn))
+            .ok_or(error!(crate::ParadoxError::MathOverflow))?;
         
-        (to_lp, to_burn, to_treasury)
+        Ok((to_lp, to_burn, to_treasury))
     }
 }
 

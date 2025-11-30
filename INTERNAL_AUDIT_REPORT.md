@@ -10,7 +10,7 @@
 ## Audit Scope
 
 **Codebase:** `TOKEN_2022_SDK/programs/paradox_token/`  
-**Commit:** `7ce3431` (post-compliance fixes)  
+**Commit:** `[latest]` (post-final fixes)  
 **Standards Applied:**
 - Solana Rust Security Checklist 2025
 - Token-2022 Extension Guidelines
@@ -112,6 +112,28 @@
 - ✅ LP withdrawal progressive timelock: 12h → 15d → 30d
 - ✅ Snapshot data validation (no zero snapshots)
 - ✅ Fee harvesting implemented (permissionless)
+
+---
+
+## Fixes Applied (Post-Audit)
+
+### Arithmetic Safety
+- ✅ All BPS calculations now use u128 intermediate values
+- ✅ `token_config.rs`: `calculate_distribution()` uses u128
+- ✅ `vesting.rs`: `max_unlockable()` uses u128
+- ✅ `treasury.rs`: `max_spendable()` uses u128
+- ✅ `armageddon.rs`: `can_recover()` uses u128
+
+### Fee Change Timelock
+- ✅ Implemented 24-hour timelock for fee changes
+- ✅ Three-step process: announce → execute → cancel
+- ✅ Events: `FeeChangeAnnounced`, `TransferFeeUpdated`, `FeeChangeCancelled`
+- ✅ Prevents front-running attacks
+
+### State Updates
+- ✅ `TokenConfig` now includes pending fee fields
+- ✅ `init_token_config.rs` initializes pending fields
+- ✅ `fees.rs` updated to handle Result from `calculate_distribution()`
 
 ---
 

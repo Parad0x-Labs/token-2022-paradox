@@ -43,7 +43,7 @@ pub fn distribute_handler(ctx: Context<DistributeFees>) -> Result<()> {
     }
     
     // Calculate distribution
-    let (to_lp, to_burn, to_treasury) = config.calculate_distribution(total_fees);
+    let (to_lp, to_burn, to_treasury) = config.calculate_distribution(total_fees)?;
     
     // DEV: Implement actual transfers
     //

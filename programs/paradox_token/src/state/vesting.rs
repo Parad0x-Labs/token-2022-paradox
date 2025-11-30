@@ -112,12 +112,13 @@ impl DevVestingVault {
     }
     
     /// Calculate maximum unlockable amount based on rate
-    /// Uses saturating arithmetic - safe for all inputs
+    /// Uses u128 intermediate calculations to prevent overflow
     pub fn max_unlockable(&self) -> u64 {
         // Rate is in bps (e.g., 500 = 5%)
-        self.locked_amount
-            .saturating_mul(self.unlock_rate_bps as u64)
-            / 10_000
+        ((self.locked_amount as u128)
+            .saturating_mul(self.unlock_rate_bps as u128)
+            .checked_div(10_000)
+            .unwrap_or(0)) as u64
     }
     
     /// Calculate vested amount based on time

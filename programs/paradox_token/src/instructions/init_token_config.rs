@@ -72,6 +72,9 @@ pub fn handler(
     config.is_paused = false;
     config.armageddon_level = 0;
     config.last_fee_update = clock.unix_timestamp;
+    config.pending_fee_bps = 0;
+    config.pending_fee_activate_time = 0;
+    config.pending_fee_cancel_time = 0;
     config.bump = ctx.bumps.token_config;
     
     emit!(TokenConfigInitialized {

@@ -53,6 +53,9 @@ pub const MAX_TRANSFER_FEE_BPS: u16 = 300;
 /// At 300 bps (3%), amounts below 34 result in 0 fee
 pub const MIN_TRANSFER_AMOUNT: u64 = 34;
 
+/// Fee change timelock: 24 hours (prevents front-running)
+pub const FEE_CHANGE_TIMELOCK_SECONDS: i64 = 24 * 60 * 60;
+
 /// Default LP share: 70%
 pub const DEFAULT_LP_SHARE_BPS: u16 = 7000;
 
@@ -110,12 +113,26 @@ pub mod paradox_token {
         )
     }
 
-    /// Update transfer fee (governance only)
-    pub fn update_transfer_fee(
-        ctx: Context<UpdateTokenConfig>,
+    /// Announce fee change (starts 24h timelock)
+    pub fn announce_fee_change(
+        ctx: Context<AnnounceFeeChange>,
         new_fee_bps: u16,
     ) -> Result<()> {
-        instructions::update_token_config::update_fee(ctx, new_fee_bps)
+        instructions::update_token_config::announce_fee_change_handler(ctx, new_fee_bps)
+    }
+    
+    /// Execute fee change (after 24h timelock)
+    pub fn execute_fee_change(
+        ctx: Context<ExecuteFeeChange>,
+    ) -> Result<()> {
+        instructions::update_token_config::execute_fee_change_handler(ctx)
+    }
+    
+    /// Cancel pending fee change
+    pub fn cancel_fee_change(
+        ctx: Context<CancelFeeChange>,
+    ) -> Result<()> {
+        instructions::update_token_config::cancel_fee_change_handler(ctx)
     }
 
     // =========================================================================
@@ -465,10 +482,24 @@ pub struct TokenConfigInitialized {
 }
 
 #[event]
+pub struct FeeChangeAnnounced {
+    pub mint: Pubkey,
+    pub old_fee_bps: u16,
+    pub new_fee_bps: u16,
+    pub activate_time: i64,
+}
+
+#[event]
 pub struct TransferFeeUpdated {
     pub mint: Pubkey,
     pub old_fee_bps: u16,
     pub new_fee_bps: u16,
+}
+
+#[event]
+pub struct FeeChangeCancelled {
+    pub mint: Pubkey,
+    pub cancelled_fee_bps: u16,
 }
 
 #[event]
