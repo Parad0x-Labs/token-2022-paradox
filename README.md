@@ -32,6 +32,12 @@ A production-ready Token-2022 token with:
 - ✅ **DAO Treasury** (governance-controlled)
 - ✅ **Armageddon Mode** ([docs](./ARMAGEDDON.md)) - emergency LP protection
 
+## Integration
+
+This is a research SDK. Core logic done, DEX-specific hooks are yours to implement. See [INTEGRATION.md](./INTEGRATION.md)
+
+---
+
 ## Quick Start
 
 ```bash
